@@ -1,0 +1,63 @@
+name: Build Google TV Remote Fold6 V10 Raised Seekbar APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Unpack one-upload ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="GoogleTV-Remote-Hub-Fold6-V10-RaisedSeekbar-OneUpload.zip"
+          test -f "$ZIP" || { echo "::error::Upload $ZIP into the repository root"; exit 1; }
+          unzip -tq "$ZIP"
+          mkdir -p "$RUNNER_TEMP/fold6"
+          unzip -q "$ZIP" -d "$RUNNER_TEMP/fold6"
+          SETTINGS=$(find "$RUNNER_TEMP/fold6" -type f -name settings.gradle -print -quit)
+          test -n "$SETTINGS"
+          echo "PROJECT_DIR=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
+      - name: Test original and phone geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          mkdir -p "$RUNNER_TEMP/geometry-test"
+          javac -d "$RUNNER_TEMP/geometry-test" app/src/main/java/com/cecbridge/remotev2/RoundPanelGeometry.java app/src/main/java/com/cecbridge/remotev2/PhonePanelGeometry.java tests/GeometryTest.java tests/PhoneGeometryTest.java
+          java -cp "$RUNNER_TEMP/geometry-test" com.cecbridge.remotev2.GeometryTest
+          java -cp "$RUNNER_TEMP/geometry-test" com.cecbridge.remotev2.PhoneGeometryTest
+      - name: Build Android phone APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p "$PROJECT_DIR" --no-daemon :app:assembleDebug :tvbridge:assembleDebug --stacktrace
+          cp "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" "$GITHUB_WORKSPACE/fold6-phone-debug.apk"
+          cp "$PROJECT_DIR/tvbridge/build/outputs/apk/debug/tvbridge-debug.apk" "$GITHUB_WORKSPACE/tv-seek-bridge-debug.apk"
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoogleTV-Remote-Hub-Fold6-V10-RaisedSeekbar-APK
+          path: |
+            fold6-phone-debug.apk
+            tv-seek-bridge-debug.apk
+          if-no-files-found: error
